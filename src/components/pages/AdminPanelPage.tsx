@@ -2327,7 +2327,13 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     onChange={(e) =>
                       handleGenericImageUpload(
                         e,
-                        (url) => handleChange('heroBookCustomCoverImage', url),
+                        async (url) => {
+                          handleChange('heroBookCustomCoverImage', url);
+                          const nextState = { ...config, ...formState, heroBookCustomCoverImage: url };
+                          updateConfig(nextState);
+                          await syncWithServer(nextState);
+                          triggerToast('Portada frontal guardada y sincronizada en el servidor.');
+                        },
                         'Portada frontal personalizada cargada.'
                       )
                     }
@@ -2343,9 +2349,12 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                   </button>
                   {formState.heroBookCustomCoverImage && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         handleChange('heroBookCustomCoverImage', '');
-                        triggerToast('Portada frontal restaurada a la original.');
+                        const nextState = { ...config, ...formState, heroBookCustomCoverImage: '' };
+                        updateConfig(nextState);
+                        await syncWithServer(nextState);
+                        triggerToast('Portada frontal restaurada y guardada en el servidor.');
                       }}
                       className="p-2.5 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 cursor-pointer"
                       title="Quitar imagen personalizada y usar original"
@@ -2425,7 +2434,13 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     onChange={(e) =>
                       handleGenericImageUpload(
                         e,
-                        (url) => handleChange('heroBookCustomBackCoverImage', url),
+                        async (url) => {
+                          handleChange('heroBookCustomBackCoverImage', url);
+                          const nextState = { ...config, ...formState, heroBookCustomBackCoverImage: url };
+                          updateConfig(nextState);
+                          await syncWithServer(nextState);
+                          triggerToast('Contraportada guardada y sincronizada en el servidor.');
+                        },
                         'Contraportada personalizada cargada.'
                       )
                     }
@@ -2441,9 +2456,12 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                   </button>
                   {formState.heroBookCustomBackCoverImage && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         handleChange('heroBookCustomBackCoverImage', '');
-                        triggerToast('Contraportada restaurada a la original.');
+                        const nextState = { ...config, ...formState, heroBookCustomBackCoverImage: '' };
+                        updateConfig(nextState);
+                        await syncWithServer(nextState);
+                        triggerToast('Contraportada restaurada y guardada en el servidor.');
                       }}
                       className="p-2.5 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 cursor-pointer"
                       title="Quitar imagen personalizada y usar original"
@@ -2515,7 +2533,13 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     onChange={(e) =>
                       handleGenericImageUpload(
                         e,
-                        (url) => handleChange('heroBookCustomSpineImage', url),
+                        async (url) => {
+                          handleChange('heroBookCustomSpineImage', url);
+                          const nextState = { ...config, ...formState, heroBookCustomSpineImage: url };
+                          updateConfig(nextState);
+                          await syncWithServer(nextState);
+                          triggerToast('Lomo guardado y sincronizado en el servidor.');
+                        },
                         'Lomo personalizado cargado.'
                       )
                     }
@@ -2531,9 +2555,12 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                   </button>
                   {formState.heroBookCustomSpineImage && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         handleChange('heroBookCustomSpineImage', '');
-                        triggerToast('Lomo restaurado al original.');
+                        const nextState = { ...config, ...formState, heroBookCustomSpineImage: '' };
+                        updateConfig(nextState);
+                        await syncWithServer(nextState);
+                        triggerToast('Lomo restaurado y guardado en el servidor.');
                       }}
                       className="p-2.5 rounded-xl bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 cursor-pointer"
                       title="Quitar imagen personalizada y usar original"

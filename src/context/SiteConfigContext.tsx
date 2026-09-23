@@ -460,7 +460,7 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  // CRUD Portadas
+  // CRUD Portadas con sincronización inmediata
   const addOrUpdateCover = (cover: PortfolioCover) => {
     setConfig((prev) => {
       const exists = prev.portfolioCovers.some((c) => c.id === cover.id);
@@ -484,7 +484,7 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  // CRUD Testimonios
+  // CRUD Testimonios con sincronización inmediata
   const addOrUpdateTestimonial = (testimonial: TestimonialItem) => {
     setConfig((prev) => {
       const exists = prev.testimonials.some((t) => t.id === testimonial.id);
@@ -508,7 +508,7 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  // CRUD Booktrailers
+  // CRUD Booktrailers con sincronización inmediata
   const addOrUpdateBooktrailer = (trailer: BooktrailerItem) => {
     setConfig((prev) => {
       const exists = prev.booktrailers.some((b) => b.id === trailer.id);
@@ -532,7 +532,7 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  // CRUD Servicios
+  // CRUD Servicios con sincronización inmediata
   const addOrUpdateService = (service: ServiceItem) => {
     setConfig((prev) => {
       const exists = prev.services.some((s) => s.id === service.id);
@@ -556,7 +556,7 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  // CRUD FAQs
+  // CRUD FAQs con sincronización inmediata
   const addOrUpdateFaq = (faq: FAQItem) => {
     setConfig((prev) => {
       const exists = prev.faqs.some((f) => f.id === faq.id);
