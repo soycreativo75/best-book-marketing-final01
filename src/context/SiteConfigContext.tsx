@@ -122,7 +122,7 @@ interface SiteConfigContextType {
   // Sincronización real con Servidor y Vercel
   serverStatus: ServerSyncStatus;
   lastSyncedAt: Date | null;
-  syncWithServer: () => Promise<{ success: boolean; message: string }>;
+  syncWithServer: (overrideConfig?: SiteConfig) => Promise<{ success: boolean; message: string }>;
   downloadVercelConfigJson: () => void;
   // Idioma
   language: Language;
@@ -217,6 +217,10 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 services: data.config.services || prev.services,
                 faqs: data.config.faqs || prev.faqs,
                 leadsInbox: data.config.leadsInbox || prev.leadsInbox,
+                customTranslations: {
+                  ...(prev.customTranslations || {}),
+                  ...(data.config.customTranslations || {}),
+                },
               };
               try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
@@ -292,13 +296,18 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
   };
 
-  const syncWithServer = async (): Promise<{ success: boolean; message: string }> => {
+  const syncWithServer = async (overrideConfig?: SiteConfig): Promise<{ success: boolean; message: string }> => {
     setServerStatus('saving');
+    const toSend = overrideConfig || config;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSend));
+    } catch {}
+
     try {
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
+        body: JSON.stringify(toSend),
       });
       const data = await res.json();
       if (data.success) {
@@ -332,7 +341,18 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const updateConfig = (newConfig: Partial<SiteConfig>) => {
     setConfig((prev) => {
-      const updated = { ...prev, ...newConfig };
+      const updated: SiteConfig = {
+        ...prev,
+        ...newConfig,
+        customTranslations: {
+          ...(prev.customTranslations || {}),
+          ...((newConfig as any).customTranslations || {}),
+        },
+        sectionsVisibility: {
+          ...prev.sectionsVisibility,
+          ...(newConfig.sectionsVisibility || {}),
+        },
+      };
       saveToStorage(updated);
       return updated;
     });

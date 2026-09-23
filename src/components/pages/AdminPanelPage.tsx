@@ -171,13 +171,31 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
     setTransHasChanges(true);
   };
 
-  const handleSaveTranslations = () => {
+  const handleSaveTranslations = async () => {
     updateCustomTranslations(transLang, transDraft as Partial<Translations>);
+    const updatedTranslations = {
+      ...(config.customTranslations || {}),
+      ...(formState.customTranslations || {}),
+      [transLang]: {
+        ...(config.customTranslations?.[transLang] || {}),
+        ...(formState.customTranslations?.[transLang] || {}),
+        ...(transDraft as Partial<Translations>),
+      },
+    };
+    setFormState((prev) => ({
+      ...prev,
+      customTranslations: updatedTranslations,
+    }));
     setTransHasChanges(false);
+    await syncWithServer({
+      ...config,
+      ...formState,
+      customTranslations: updatedTranslations,
+    });
     triggerToast(
       transLang === 'en'
-        ? '¡Traducciones al inglés guardadas y activas en el sitio!'
-        : '¡Textos en español guardados y activos en el sitio!'
+        ? '¡Traducciones al inglés guardadas y sincronizadas en el servidor!'
+        : '¡Textos en español guardados y sincronizados en el servidor!'
     );
   };
 
@@ -292,12 +310,26 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
 
   const [isSyncingServer, setIsSyncingServer] = useState(false);
   const [serverHealthData, setServerHealthData] = useState<any>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const isLight = theme === 'light';
 
-  // Sincronizar formState si config cambia
+  // Sincronizar formState si config cambia externamente, sin sobreescribir campos que el usuario esté editando
   useEffect(() => {
-    setFormState({ ...config });
+    setFormState((prev) => {
+      if (!hasUnsavedChanges) {
+        return { ...config };
+      }
+      return {
+        ...config,
+        ...prev,
+        portfolioCovers: prev.portfolioCovers || config.portfolioCovers,
+        testimonials: prev.testimonials || config.testimonials,
+        booktrailers: prev.booktrailers || config.booktrailers,
+        services: prev.services || config.services,
+        faqs: prev.faqs || config.faqs,
+      };
+    });
   }, [config]);
 
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -324,17 +356,38 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
 
   const handleChange = (field: keyof SiteConfig, value: any) => {
     setFormState((prev) => ({ ...prev, [field]: value }));
+    setHasUnsavedChanges(true);
   };
 
-  const handleSave = async () => {
-    updateConfig(formState);
+  const handleSave = async (explicitMerged?: SiteConfig) => {
     setIsSyncingServer(true);
-    const res = await syncWithServer();
+    const toSave: SiteConfig = explicitMerged || {
+      ...config,
+      ...formState,
+      customTranslations: {
+        ...(config.customTranslations || {}),
+        ...(formState.customTranslations || {}),
+      },
+      sectionsVisibility: {
+        ...config.sectionsVisibility,
+        ...(formState.sectionsVisibility || {}),
+      },
+      portfolioCovers: formState.portfolioCovers || config.portfolioCovers,
+      testimonials: formState.testimonials || config.testimonials,
+      booktrailers: formState.booktrailers || config.booktrailers,
+      services: formState.services || config.services,
+      faqs: formState.faqs || config.faqs,
+      leadsInbox: formState.leadsInbox || config.leadsInbox,
+    };
+    setFormState(toSave);
+    updateConfig(toSave);
+    const res = await syncWithServer(toSave);
     setIsSyncingServer(false);
+    setHasUnsavedChanges(false);
     if (res.success) {
-      triggerToast('¡Configuración guardada y sincronizada en el servidor exitosamente!');
+      triggerToast('¡Todo guardado y sincronizado con el servidor y Vercel exitosamente!');
     } else {
-      triggerToast('Configuración guardada localmente. (' + res.message + ')');
+      triggerToast('Guardado localmente. (' + res.message + ')');
     }
   };
 
@@ -350,10 +403,8 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
     const reader = new FileReader();
     reader.onload = async (event) => {
       const dataUrl = event.target?.result as string;
-      if (editingCover) {
-        setEditingCover((prev) => (prev ? { ...prev, imageUrl: dataUrl } : null));
-      }
-      triggerToast('Imagen de portada cargada. Haz clic en "Guardar Portada" para fijarla.');
+      setEditingCover((prev) => (prev ? { ...prev, imageUrl: dataUrl } : null));
+      triggerToast('Imagen de portada cargada. Haz clic en "Guardar Portada" para fijarla en el servidor.');
 
       // Respaldo en servidor si /api/upload está activo
       try {
@@ -364,9 +415,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
         });
         const d = await res.json();
         if (d.success && d.url) {
-          if (editingCover) {
-            setEditingCover((prev) => (prev ? { ...prev, imageUrl: d.url } : null));
-          }
+          setEditingCover((prev) => (prev ? { ...prev, imageUrl: d.url } : null));
         }
       } catch (err) {
         // En caso de que se use data URL directamente
@@ -418,20 +467,21 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const result = event.target?.result as string;
-      if (mode === 'white') {
-        handleChange('logoWhiteUrl', result);
-      } else {
-        handleChange('logoBlackUrl', result);
-      }
+      const field = mode === 'white' ? 'logoWhiteUrl' : 'logoBlackUrl';
+      handleChange(field, result);
+      const updated = { ...config, ...formState, [field]: result };
+      updateConfig({ [field]: result });
+      await syncWithServer(updated);
       triggerToast(
         mode === 'white'
-          ? 'Logotipo para fondo oscuro cargado.'
-          : 'Logotipo para fondo claro cargado.'
+          ? 'Logotipo para fondo oscuro cargado y guardado en servidor.'
+          : 'Logotipo para fondo claro cargado y guardado en servidor.'
       );
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleGenericImageUpload = (
@@ -690,7 +740,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
             </button>
 
             <button
-              onClick={handleSave}
+              onClick={() => handleSave()}
               className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black hover:brightness-110 shadow-[0_0_15px_rgba(214,40,40,0.4)] transition-all cursor-pointer"
             >
               <Save className="w-3.5 h-3.5" />
@@ -1941,6 +1991,66 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     }`}
                   />
                 </div>
+
+                {/* Redes Sociales Oficiales */}
+                <div className="sm:col-span-2 pt-4 border-t border-white/10 space-y-4">
+                  <h4 className="font-gotham font-black text-xs text-[#D62828] uppercase tracking-wider">
+                    Enlaces a Redes Sociales Oficiales
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-gotham font-bold mb-1">Instagram:</label>
+                      <input
+                        type="text"
+                        value={formState.instagramUrl || ''}
+                        onChange={(e) => handleChange('instagramUrl', e.target.value)}
+                        placeholder="https://instagram.com/bestbookmkt"
+                        className={`w-full px-3 py-2.5 rounded-xl border text-xs ${
+                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#080709] border-white/10 text-white'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-gotham font-bold mb-1">LinkedIn:</label>
+                      <input
+                        type="text"
+                        value={formState.linkedinUrl || ''}
+                        onChange={(e) => handleChange('linkedinUrl', e.target.value)}
+                        placeholder="https://linkedin.com/company/bestbookmkt"
+                        className={`w-full px-3 py-2.5 rounded-xl border text-xs ${
+                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#080709] border-white/10 text-white'
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-gotham font-bold mb-1">YouTube:</label>
+                      <input
+                        type="text"
+                        value={formState.youtubeUrl || ''}
+                        onChange={(e) => handleChange('youtubeUrl', e.target.value)}
+                        placeholder="https://youtube.com/@bestbookmkt"
+                        className={`w-full px-3 py-2.5 rounded-xl border text-xs ${
+                          isLight ? 'bg-slate-50 border-slate-300 text-slate-900' : 'bg-[#080709] border-white/10 text-white'
+                        }`}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <span className="text-xs text-slate-400">
+                    {hasUnsavedChanges ? '⚠️ Tienes modificaciones pendientes en esta sección' : '✓ Datos sincronizados'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleSave()}
+                    disabled={isSyncingServer}
+                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] hover:brightness-110 text-white text-xs font-gotham font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-950/40"
+                  >
+                    {isSyncingServer ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    <span>Guardar Canales de Contacto</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2093,6 +2203,21 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                       }`}
                     />
                   </div>
+                </div>
+
+                <div className="pt-4 mt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <span className="text-xs text-slate-400">
+                    {hasUnsavedChanges ? '⚠️ Tienes modificaciones pendientes en textos del hero' : '✓ Textos sincronizados con el servidor'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleSave()}
+                    disabled={isSyncingServer}
+                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] hover:brightness-110 text-white text-xs font-gotham font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-950/40"
+                  >
+                    {isSyncingServer ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    <span>Guardar Textos del Hero y Métricas</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -2419,6 +2544,21 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                 </div>
               </div>
             </div>
+
+            <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">
+                {hasUnsavedChanges ? '⚠️ Tienes modificaciones pendientes en el libro 3D' : '✓ Imágenes sincronizadas'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSave()}
+                disabled={isSyncingServer}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] hover:brightness-110 text-white text-xs font-gotham font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-950/40"
+              >
+                {isSyncingServer ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Guardar Personalización del Libro 3D</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -2566,12 +2706,23 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     Cancelar
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!editingCover) return;
                       addOrUpdateCover(editingCover);
+                      const exists = (formState.portfolioCovers || []).some((c) => c.id === editingCover.id);
+                      const updatedCovers = exists
+                        ? (formState.portfolioCovers || []).map((c) => (c.id === editingCover.id ? editingCover : c))
+                        : [...(formState.portfolioCovers || []), editingCover];
+                      setFormState((prev) => ({ ...prev, portfolioCovers: updatedCovers }));
+                      await syncWithServer({
+                        ...config,
+                        ...formState,
+                        portfolioCovers: updatedCovers,
+                      });
                       setEditingCover(null);
-                      triggerToast('Portada guardada en el carrusel.');
+                      triggerToast('¡Portada guardada en el carrusel y sincronizada en el servidor!');
                     }}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer shadow-md"
                   >
                     Guardar Portada
                   </button>
@@ -2616,10 +2767,17 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                         Editar
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (window.confirm(`¿Eliminar la portada "${cover.title}"?`)) {
                             deleteCover(cover.id);
-                            triggerToast('Portada eliminada.');
+                            const updatedCovers = (formState.portfolioCovers || []).filter((c) => c.id !== cover.id);
+                            setFormState((prev) => ({ ...prev, portfolioCovers: updatedCovers }));
+                            await syncWithServer({
+                              ...config,
+                              ...formState,
+                              portfolioCovers: updatedCovers,
+                            });
+                            triggerToast('Portada eliminada y sincronizada.');
                           }
                         }}
                         className="text-[11px] text-rose-500 hover:underline cursor-pointer"
@@ -2740,12 +2898,23 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     Cancelar
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!editingTestimonial) return;
                       addOrUpdateTestimonial(editingTestimonial);
+                      const exists = (formState.testimonials || []).some((t) => t.id === editingTestimonial.id);
+                      const updatedItems = exists
+                        ? (formState.testimonials || []).map((t) => (t.id === editingTestimonial.id ? editingTestimonial : t))
+                        : [...(formState.testimonials || []), editingTestimonial];
+                      setFormState((prev) => ({ ...prev, testimonials: updatedItems }));
+                      await syncWithServer({
+                        ...config,
+                        ...formState,
+                        testimonials: updatedItems,
+                      });
                       setEditingTestimonial(null);
-                      triggerToast('Testimonio guardado.');
+                      triggerToast('¡Testimonio guardado y sincronizado en el servidor!');
                     }}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer shadow-md"
                   >
                     Guardar Testimonio
                   </button>
@@ -2790,10 +2959,17 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                       Editar
                     </button>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (window.confirm(`¿Eliminar el testimonio de "${t.name}"?`)) {
                           deleteTestimonial(t.id);
-                          triggerToast('Testimonio eliminado.');
+                          const updatedItems = (formState.testimonials || []).filter((item) => item.id !== t.id);
+                          setFormState((prev) => ({ ...prev, testimonials: updatedItems }));
+                          await syncWithServer({
+                            ...config,
+                            ...formState,
+                            testimonials: updatedItems,
+                          });
+                          triggerToast('Testimonio eliminado y sincronizado.');
                         }
                       }}
                       className="text-rose-500 hover:underline cursor-pointer"
@@ -2969,12 +3145,23 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     Cancelar
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!editingBooktrailer) return;
                       addOrUpdateBooktrailer(editingBooktrailer);
+                      const exists = (formState.booktrailers || []).some((b) => b.id === editingBooktrailer.id);
+                      const updatedItems = exists
+                        ? (formState.booktrailers || []).map((b) => (b.id === editingBooktrailer.id ? editingBooktrailer : b))
+                        : [...(formState.booktrailers || []), editingBooktrailer];
+                      setFormState((prev) => ({ ...prev, booktrailers: updatedItems }));
+                      await syncWithServer({
+                        ...config,
+                        ...formState,
+                        booktrailers: updatedItems,
+                      });
                       setEditingBooktrailer(null);
-                      triggerToast('Booktrailer guardado.');
+                      triggerToast('¡Booktrailer guardado y sincronizado en el servidor!');
                     }}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer shadow-md"
                   >
                     Guardar Booktrailer
                   </button>
@@ -3026,10 +3213,17 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                         Editar
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (window.confirm(`¿Eliminar booktrailer "${b.title}"?`)) {
                             deleteBooktrailer(b.id);
-                            triggerToast('Booktrailer eliminado.');
+                            const updatedItems = (formState.booktrailers || []).filter((item) => item.id !== b.id);
+                            setFormState((prev) => ({ ...prev, booktrailers: updatedItems }));
+                            await syncWithServer({
+                              ...config,
+                              ...formState,
+                              booktrailers: updatedItems,
+                            });
+                            triggerToast('Booktrailer eliminado y sincronizado.');
                           }
                         }}
                         className="text-rose-500 hover:underline cursor-pointer"
@@ -3196,12 +3390,23 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     Cancelar
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!editingService) return;
                       addOrUpdateService(editingService);
+                      const exists = (formState.services || []).some((s) => s.id === editingService.id);
+                      const updatedItems = exists
+                        ? (formState.services || []).map((s) => (s.id === editingService.id ? editingService : s))
+                        : [...(formState.services || []), editingService];
+                      setFormState((prev) => ({ ...prev, services: updatedItems }));
+                      await syncWithServer({
+                        ...config,
+                        ...formState,
+                        services: updatedItems,
+                      });
                       setEditingService(null);
-                      triggerToast('Servicio editorial guardado.');
+                      triggerToast('¡Servicio editorial guardado y sincronizado en el servidor!');
                     }}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer shadow-md"
                   >
                     Guardar Servicio
                   </button>
@@ -3243,10 +3448,17 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                       Editar
                     </button>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (window.confirm(`¿Eliminar el servicio "${s.title}"?`)) {
                           deleteService(s.id);
-                          triggerToast('Servicio eliminado.');
+                          const updatedItems = (formState.services || []).filter((item) => item.id !== s.id);
+                          setFormState((prev) => ({ ...prev, services: updatedItems }));
+                          await syncWithServer({
+                            ...config,
+                            ...formState,
+                            services: updatedItems,
+                          });
+                          triggerToast('Servicio eliminado y sincronizado.');
                         }
                       }}
                       className="text-rose-500 hover:underline cursor-pointer"
@@ -3337,12 +3549,23 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                     Cancelar
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!editingFaq) return;
                       addOrUpdateFaq(editingFaq);
+                      const exists = (formState.faqs || []).some((f) => f.id === editingFaq.id);
+                      const updatedItems = exists
+                        ? (formState.faqs || []).map((f) => (f.id === editingFaq.id ? editingFaq : f))
+                        : [...(formState.faqs || []), editingFaq];
+                      setFormState((prev) => ({ ...prev, faqs: updatedItems }));
+                      await syncWithServer({
+                        ...config,
+                        ...formState,
+                        faqs: updatedItems,
+                      });
                       setEditingFaq(null);
-                      triggerToast('Pregunta FAQ guardada.');
+                      triggerToast('¡Pregunta FAQ guardada y sincronizada en el servidor!');
                     }}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer"
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black cursor-pointer shadow-md"
                   >
                     Guardar FAQ
                   </button>
@@ -3376,10 +3599,17 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                       Editar
                     </button>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (window.confirm('¿Deseas eliminar esta pregunta frecuente?')) {
                           deleteFaq(f.id);
-                          triggerToast('FAQ eliminada.');
+                          const updatedItems = (formState.faqs || []).filter((item) => item.id !== f.id);
+                          setFormState((prev) => ({ ...prev, faqs: updatedItems }));
+                          await syncWithServer({
+                            ...config,
+                            ...formState,
+                            faqs: updatedItems,
+                          });
+                          triggerToast('FAQ eliminada y sincronizada.');
                         }
                       }}
                       className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10 cursor-pointer"
@@ -3480,6 +3710,21 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                   />
                 </div>
               </div>
+            </div>
+
+            <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">
+                {hasUnsavedChanges ? '⚠️ Tienes modificaciones pendientes en precios' : '✓ Precios sincronizados con el servidor'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSave()}
+                disabled={isSyncingServer}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] hover:brightness-110 text-white text-xs font-gotham font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-950/40"
+              >
+                {isSyncingServer ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Guardar Planes y Precios</span>
+              </button>
             </div>
           </div>
         )}
@@ -3592,6 +3837,21 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                   )}
                 </div>
               </div>
+            </div>
+
+            <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">
+                {hasUnsavedChanges ? '⚠️ Modificaciones pendientes en logotipos' : '✓ Logotipos sincronizados con el servidor'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSave()}
+                disabled={isSyncingServer}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] hover:brightness-110 text-white text-xs font-gotham font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-950/40"
+              >
+                {isSyncingServer ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Guardar Logotipos en Servidor</span>
+              </button>
             </div>
           </div>
         )}
@@ -3788,6 +4048,21 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
                 </div>
               </div>
             </div>
+
+            <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">
+                {hasUnsavedChanges ? '⚠️ Modificaciones pendientes en favicon' : '✓ Favicon sincronizado con el servidor'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSave()}
+                disabled={isSyncingServer}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] hover:brightness-110 text-white text-xs font-gotham font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-950/40"
+              >
+                {isSyncingServer ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Guardar Favicon en Servidor</span>
+              </button>
+            </div>
           </div>
         )}
         {/* 13. ESTADO DEL SERVIDOR Y DESPLIEGUE EN VERCEL */}
@@ -3806,7 +4081,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handleSave}
+                  onClick={() => handleSave()}
                   disabled={isSyncingServer}
                   className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] text-white text-xs font-gotham font-black flex items-center gap-1.5 cursor-pointer shadow-[0_0_20px_rgba(214,40,40,0.4)] disabled:opacity-50"
                 >
@@ -4108,6 +4383,64 @@ npm run dev`}
           </div>
         )}
       </div>
+
+      {/* Barra Flotante Inferior de Cambios Pendientes */}
+      <AnimatePresence>
+        {hasUnsavedChanges && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-2xl w-[92%] sm:w-full bg-[#1c1218]/95 backdrop-blur-xl border-2 border-[#D62828] shadow-[0_10px_40px_rgba(214,40,40,0.5)] rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-3 text-left">
+              <div className="w-10 h-10 rounded-xl bg-[#D62828]/20 border border-[#D62828] flex items-center justify-center text-[#D62828] flex-shrink-0 animate-pulse">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="font-gotham font-black text-sm text-white">
+                  Tienes modificaciones sin guardar
+                </p>
+                <p className="text-[11px] text-slate-300">
+                  Guarda para sincronizar de inmediato en el servidor y Vercel.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setFormState({ ...config });
+                  setHasUnsavedChanges(false);
+                  triggerToast('Cambios descartados.');
+                }}
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-gotham font-bold text-slate-300 transition-colors cursor-pointer"
+              >
+                Descartar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave()}
+                disabled={isSyncingServer}
+                className="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#D62828] to-[#b71c1c] hover:brightness-110 text-white text-xs font-gotham font-black uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-red-950/60 disabled:opacity-50"
+              >
+                {isSyncingServer ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Guardar Todo en Servidor</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
