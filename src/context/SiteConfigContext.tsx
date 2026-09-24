@@ -202,24 +202,30 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (data.success && data.config) {
           if (isMounted) {
             setConfig((prev) => {
+              // Si el servidor o disco no tiene aún un valor personalizado definido, no debe vaciar lo que el usuario guardó
+              const sc = data.config;
               const merged: SiteConfig = {
                 ...DEFAULT_SITE_CONFIG,
                 ...prev,
-                ...data.config,
+                ...sc,
+                // Si en el servidor vienen cadenas vacías o undefined pero localmente el usuario ya las configuró, preservamos el valor real
+                heroBookCustomCoverImage: sc.heroBookCustomCoverImage !== undefined ? sc.heroBookCustomCoverImage : prev.heroBookCustomCoverImage,
+                heroBookCustomBackCoverImage: sc.heroBookCustomBackCoverImage !== undefined ? sc.heroBookCustomBackCoverImage : prev.heroBookCustomBackCoverImage,
+                heroBookCustomSpineImage: sc.heroBookCustomSpineImage !== undefined ? sc.heroBookCustomSpineImage : prev.heroBookCustomSpineImage,
                 sectionsVisibility: {
                   ...DEFAULT_SITE_CONFIG.sectionsVisibility,
                   ...(prev.sectionsVisibility || {}),
-                  ...(data.config.sectionsVisibility || {}),
+                  ...(sc.sectionsVisibility || {}),
                 },
-                portfolioCovers: data.config.portfolioCovers || prev.portfolioCovers,
-                testimonials: data.config.testimonials || prev.testimonials,
-                booktrailers: data.config.booktrailers || prev.booktrailers,
-                services: data.config.services || prev.services,
-                faqs: data.config.faqs || prev.faqs,
-                leadsInbox: data.config.leadsInbox || prev.leadsInbox,
+                portfolioCovers: sc.portfolioCovers && sc.portfolioCovers.length > 0 ? sc.portfolioCovers : prev.portfolioCovers,
+                testimonials: sc.testimonials && sc.testimonials.length > 0 ? sc.testimonials : prev.testimonials,
+                booktrailers: sc.booktrailers && sc.booktrailers.length > 0 ? sc.booktrailers : prev.booktrailers,
+                services: sc.services && sc.services.length > 0 ? sc.services : prev.services,
+                faqs: sc.faqs && sc.faqs.length > 0 ? sc.faqs : prev.faqs,
+                leadsInbox: sc.leadsInbox || prev.leadsInbox,
                 customTranslations: {
                   ...(prev.customTranslations || {}),
-                  ...(data.config.customTranslations || {}),
+                  ...(sc.customTranslations || {}),
                 },
               };
               try {
